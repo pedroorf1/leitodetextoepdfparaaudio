@@ -3,34 +3,24 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🔊 Leitor de Texto - Versão Corrigida</title>
+  <title>🔊 Leitor de Texto e PDF</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
   <style>
     :root {
       --bg: #0f172a;
       --card: #1e293b;
       --text: #e2e8f0;
       --accent: #3b82f6;
-      --success: #10b981;
-      --error: #ef4444;
       --radius: 12px;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: system-ui, sans-serif;
     }
 
     body {
       background: var(--bg);
       color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       padding: 20px;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      justify-content: center;
     }
 
     .container {
@@ -48,165 +38,159 @@
       color: #93c5fd;
     }
 
-    textarea {
+    /* Estilo do Botão Customizado */
+    .custom-file-btn {
+      display: block;
       width: 100%;
       padding: 12px;
-      border-radius: var(--radius);
-      border: 2px solid #334155;
+      background: #334155;
+      color: white;
+      text-align: center;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 10px;
+      font-weight: 600;
+      border: 2px dashed #475569;
+    }
+
+    .custom-file-btn:hover {
+      background: #475569;
+    }
+
+    #pdfInput {
+      display: none;
+    }
+
+    /* Esconde o input real */
+
+    textarea {
+      width: 100%;
+      height: 150px;
       background: #0f172a;
-      color: var(--text);
-      font-size: 1rem;
-      min-height: 120px;
+      color: white;
+      padding: 12px;
+      border: 2px solid #334155;
+      border-radius: 8px;
       margin-bottom: 1rem;
-      resize: vertical;
     }
 
     .controls {
       display: flex;
       gap: 10px;
-      flex-wrap: wrap;
       margin-bottom: 1rem;
     }
 
-    select,
-    button {
-      padding: 12px 16px;
-      border-radius: 8px;
-      border: none;
-      cursor: pointer;
-      font-weight: 600;
-      transition: all 0.2s;
-    }
-
     select {
-      background: #0f172a;
-      color: var(--text);
-      border: 2px solid #334155;
       flex: 1;
-      min-width: 250px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #0f172a;
+      color: white;
+      border: 2px solid #334155;
     }
 
     button {
-      background: #334155;
+      padding: 12px;
+      flex: 1;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
       color: white;
-    }
-
-    button:hover:not(:disabled) {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    #playBtn {
+      font-weight: 600;
       background: var(--accent);
+    }
+
+    #pauseBtn {
+      background: #64748b;
+    }
+
+    #stopBtn {
+      background: #ef4444;
     }
 
     .status {
       padding: 12px;
+      background: #0f172a;
       border-radius: 8px;
       text-align: center;
-      font-weight: 600;
-      margin: 1rem 0;
-    }
-
-    .status.info {
-      background: #1e3a8a;
-      color: #93c5fd;
-    }
-
-    .status.success {
-      background: #065f46;
-      color: #6ee7b7;
-    }
-
-    .status.error {
-      background: #991b1b;
-      color: #fca5a5;
+      border: 1px solid #334155;
     }
   </style>
 </head>
 
 <body>
-  <div class="container">
-    <h1>🔊 Leitor de Texto</h1>
-    <textarea id="textInput"
-      placeholder="Digite seu texto...">Olá! Se você consegue me ouvir, o leitor está funcionando corretamente.</textarea>
 
-    <div class="controls">
-      <select id="voiceSelect">
-        <option value="">Carregando vozes...</option>
-      </select>
-    </div>
+  <div class="container">
+    <h1>🔊 Leitor de Texto e PDF</h1>
+
+    <label for="pdfInput" class="custom-file-btn">📁 Selecionar arquivo PDF</label>
+    <input type="file" id="pdfInput" accept="application/pdf">
+    <div id="fileNameDisplay" style="text-align: center; margin-bottom: 10px; font-size: 0.8rem; color: #94a3b8;">Nenhum
+      arquivo selecionado</div>
+
+    <textarea id="textInput" placeholder="Cole seu texto aqui ou carregue um PDF..."></textarea>
+
+    <select id="voiceSelect"></select>
 
     <div class="controls">
       <button id="playBtn">▶️ Reproduzir</button>
       <button id="pauseBtn">⏸️ Pausar</button>
       <button id="stopBtn">⏹️ Parar</button>
     </div>
-
-    <div id="status" class="status info">Clique em Reproduzir para começar</div>
+    <div id="status" class="status">Pronto</div>
   </div>
 
   <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    const pdfInput = document.getElementById('pdfInput');
     const textInput = document.getElementById('textInput');
-    const voiceSelect = document.getElementById('voiceSelect');
-    const playBtn = document.getElementById('playBtn');
-    const pauseBtn = document.getElementById('pauseBtn');
-    const stopBtn = document.getElementById('stopBtn');
     const statusEl = document.getElementById('status');
+    const fileNameDisplay = document.getElementById('fileNameDisplay');
 
-    let voices = [];
-    let currentUtterance = null;
+    // Ao selecionar arquivo, dispara o carregamento
+    pdfInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      fileNameDisplay.textContent = "Arquivo: " + file.name;
+      statusEl.textContent = "⏳ Lendo PDF...";
 
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const pdf = await pdfjsLib.getDocument(new Uint8Array(reader.result)).promise;
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          fullText += content.items.map(item => item.str).join(" ") + "\n";
+        }
+        textInput.value = fullText;
+        statusEl.textContent = "✅ Pronto!";
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    // Funções de fala (mantidas conforme anterior)
     function loadVoices() {
-      voices = speechSynthesis.getVoices();
-      voiceSelect.innerHTML = '';
-      voices.forEach((voice, index) => {
-        const opt = document.createElement('option');
-        opt.value = index;
-        opt.textContent = `${voice.name} (${voice.lang})`;
-        if (voice.lang.includes('pt')) opt.selected = true;
-        voiceSelect.appendChild(opt);
-      });
+      const voices = speechSynthesis.getVoices();
+      document.getElementById('voiceSelect').innerHTML = voices.map((v, i) => `<option value="${i}">${v.name}</option>`).join('');
     }
-
-    // Inicialização da API
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+    speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
 
-    function speak() {
-      // Cancela qualquer áudio anterior
-      window.speechSynthesis.cancel();
-
-      const text = textInput.value.trim();
-      if (!text) return;
-
-      currentUtterance = new SpeechSynthesisUtterance(text);
-      currentUtterance.voice = voices[voiceSelect.value];
-
-      currentUtterance.onstart = () => statusEl.textContent = "🔊 Falando...";
-      currentUtterance.onend = () => statusEl.textContent = "✅ Concluído";
-      currentUtterance.onerror = (e) => statusEl.textContent = "❌ Erro na fala: " + e.error;
-
-      window.speechSynthesis.speak(currentUtterance);
-    }
-
-    playBtn.addEventListener('click', () => {
-      // Verificação de segurança: A fala precisa ser disparada por um evento do usuário
-      speak();
+    document.getElementById('playBtn').addEventListener('click', () => {
+      speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(textInput.value);
+      utterance.voice = speechSynthesis.getVoices()[document.getElementById('voiceSelect').value];
+      window.speechSynthesis.speak(utterance);
+      statusEl.textContent = "🔊 Reproduzindo...";
     });
 
-    pauseBtn.addEventListener('click', () => {
-      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-      else window.speechSynthesis.pause();
+    document.getElementById('pauseBtn').addEventListener('click', () => {
+      if (speechSynthesis.paused) speechSynthesis.resume(); else speechSynthesis.pause();
     });
 
-    stopBtn.addEventListener('click', () => {
-      window.speechSynthesis.cancel();
+    document.getElementById('stopBtn').addEventListener('click', () => {
+      speechSynthesis.cancel();
       statusEl.textContent = "⏹️ Parado";
     });
   </script>
