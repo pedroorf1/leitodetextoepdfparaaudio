@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🔊 Leitor de Texto - Versão Corrigida</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --accent: #3b82f6;
+      --success: #10b981;
+      --error: #ef4444;
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: var(--card);
+      padding: 2rem;
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 800px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 1.5rem;
+      color: #93c5fd;
+    }
+
+    textarea {
+      width: 100%;
+      padding: 12px;
+      border-radius: var(--radius);
+      border: 2px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      font-size: 1rem;
+      min-height: 120px;
+      margin-bottom: 1rem;
+      resize: vertical;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    select,
+    button {
+      padding: 12px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    select {
+      background: #0f172a;
+      color: var(--text);
+      border: 2px solid #334155;
+      flex: 1;
+      min-width: 250px;
+    }
+
+    button {
+      background: #334155;
+      color: white;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #playBtn {
+      background: var(--accent);
+    }
+
+    .status {
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: 600;
+      margin: 1rem 0;
+    }
+
+    .status.info {
+      background: #1e3a8a;
+      color: #93c5fd;
+    }
+
+    .status.success {
+      background: #065f46;
+      color: #6ee7b7;
+    }
+
+    .status.error {
+      background: #991b1b;
+      color: #fca5a5;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>🔊 Leitor de Texto</h1>
+    <textarea id="textInput"
+      placeholder="Digite seu texto...">Olá! Se você consegue me ouvir, o leitor está funcionando corretamente.</textarea>
+
+    <div class="controls">
+      <select id="voiceSelect">
+        <option value="">Carregando vozes...</option>
+      </select>
+    </div>
+
+    <div class="controls">
+      <button id="playBtn">▶️ Reproduzir</button>
+      <button id="pauseBtn">⏸️ Pausar</button>
+      <button id="stopBtn">⏹️ Parar</button>
+    </div>
+
+    <div id="status" class="status info">Clique em Reproduzir para começar</div>
+  </div>
+
+  <script>
+    const textInput = document.getElementById('textInput');
+    const voiceSelect = document.getElementById('voiceSelect');
+    const playBtn = document.getElementById('playBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusEl = document.getElementById('status');
+
+    let voices = [];
+    let currentUtterance = null;
+
+    function loadVoices() {
+      voices = speechSynthesis.getVoices();
+      voiceSelect.innerHTML = '';
+      voices.forEach((voice, index) => {
+        const opt = document.createElement('option');
+        opt.value = index;
+        opt.textContent = `${voice.name} (${voice.lang})`;
+        if (voice.lang.includes('pt')) opt.selected = true;
+        voiceSelect.appendChild(opt);
+      });
+    }
+
+    // Inicialização da API
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+
+    function speak() {
+      // Cancela qualquer áudio anterior
+      window.speechSynthesis.cancel();
+
+      const text = textInput.value.trim();
+      if (!text) return;
+
+      currentUtterance = new SpeechSynthesisUtterance(text);
+      currentUtterance.voice = voices[voiceSelect.value];
+
+      currentUtterance.onstart = () => statusEl.textContent = "🔊 Falando...";
+      currentUtterance.onend = () => statusEl.textContent = "✅ Concluído";
+      currentUtterance.onerror = (e) => statusEl.textContent = "❌ Erro na fala: " + e.error;
+
+      window.speechSynthesis.speak(currentUtterance);
+    }
+
+    playBtn.addEventListener('click', () => {
+      // Verificação de segurança: A fala precisa ser disparada por um evento do usuário
+      speak();
+    });
+
+    pauseBtn.addEventListener('click', () => {
+      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+      else window.speechSynthesis.pause();
+    });
+
+    stopBtn.addEventListener('click', () => {
+      window.speechSynthesis.cancel();
+      statusEl.textContent = "⏹️ Parado";
+    });
+  </script>
+</body>
+
+</html>
