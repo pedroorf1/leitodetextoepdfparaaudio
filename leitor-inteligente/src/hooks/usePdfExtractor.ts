@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import * as pdfjs from 'pdfjs-dist';
 
-// Configura o worker apontando para o CDN oficial compatível com a versão instalada
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// IMPORTAÇÃO NATIVA DO VITE: O próprio Vite cria um chunk de Worker isolado
+import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
+
+// Define o link do worker local gerado pelo empacotador
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 export const usePdfExtractor = () => {
   const [text, setText] = useState<string>('');
@@ -21,9 +24,10 @@ export const usePdfExtractor = () => {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
+
+        // Mapeia e junta os blocos textuais da página de forma segura
         const pageText = content.items
-          // Filtra apenas itens que possuem a propriedade 'str' (texto)
-          .map((item: any) => item.str)
+          .map((item: any) => item.str || '')
           .join(' ');
 
         fullText += pageText + '\n';
@@ -32,7 +36,7 @@ export const usePdfExtractor = () => {
       setText(fullText);
     } catch (error) {
       console.error('Erro ao extrair PDF:', error);
-      alert('Falha ao ler o arquivo PDF.');
+      alert('Falha ao ler o arquivo PDF. Verifique se o documento não está corrompido.');
     } finally {
       setIsProcessing(false);
     }

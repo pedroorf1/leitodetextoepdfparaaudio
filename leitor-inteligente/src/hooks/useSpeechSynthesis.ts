@@ -7,45 +7,80 @@ export const useSpeechSynthesis = (
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceIndex, setSelectedVoiceIndex] = useState<number>(0);
   const [status, setStatus] = useState<string>('Pronto');
-  const [cursorPosition, setCursorPosition] = useState<number>(0);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Carrega as vozes do sistema operacional
   useEffect(() => {
     const loadVoices = () => {
       const availableVoices = window.speechSynthesis.getVoices();
       setVoices(availableVoices);
 
-      // Tenta selecionar uma voz em PT-BR por padrão, se houver
-      const ptBrIndex = availableVoices.findIndex(v => v.lang.includes('PT-BR') || v.lang.includes('pt-BR'));
-      if (ptBrIndex !== -1) setSelectedVoiceIndex(ptBrIndex);
+      // Tenta selecionar prioritariamente a voz Francisca da Microsoft se disponível localmente
+      const defaultIndex = availableVoices.findIndex(v =>
+        v.name.includes('Francisca') || v.lang.includes('pt-BR')
+      );
+      if (defaultIndex !== -1) setSelectedVoiceIndex(defaultIndex);
     };
 
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
   }, []);
 
+  // 🧹 REGRA DO CONFIG: Limpa o texto antes de ler em voz alta
+  const preprocessText = (rawText: string): string => {
+    let cleanText = rawText;
+
+    // 1. ignore_brackets (Remove tudo entre [ ])
+    cleanText = cleanText.replace(/\[.*?\]/g, '');
+
+    // 2. ignore_parentheses (Remove tudo entre ( ))
+    cleanText = cleanText.replace(/\(.*?\)/g, '');
+
+    // 3. ignore_asterisks (Remove tudo entre * *)
+    cleanText = cleanText.replace(/\*.*?\*/g, '');
+
+    // 4. ignore_angle_brackets (Remove tudo entre < >)
+    cleanText = cleanText.replace(/<.*?>/g, '');
+
+    // 5. remove_special_char (Filtra emojis e caracteres especiais complexos de chats)
+    // Mantém letras, números, acentuação e pontuações tradicionais de leitura.
+    cleanText = cleanText.replace(/[^\w\s\dáàâãéèêíïóôõöúçñÁÀÂÃÉÈÍÏÓÔÕÖÚÇÑ.,!?;:()""'\-]/g, '');
+
+    return cleanText;
+  };
+
   const playFromPosition = (startPos: number) => {
     window.speechSynthesis.cancel();
-    const textToSpeak = text.substring(startPos);
 
-    if (!textToSpeak.trim()) {
-      setStatus('❌ Fim do texto!');
+    // Captura o pedaço do texto com base no cursor
+    const rawTextToSpeak = text.substring(startPos);
+
+    // Aplica o pré-processador inteligente vindo do conf.yaml
+    const sanitizedText = preprocessText(rawTextToSpeak);
+
+    if (!sanitizedText.trim()) {
+      setStatus('❌ Fim do texto limpo para leitura!');
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    const utterance = new SpeechSynthesisUtterance(sanitizedText);
+
     if (voices[selectedVoiceIndex]) {
       utterance.voice = voices[selectedVoiceIndex];
     }
 
+    // Configuração base de ritmo (+15% acelerado conforme o arquivo do projeto original)
+    utterance.rate = 1.15;
+    utterance.pitch = 1.0;
+
     utterance.onstart = () => setStatus('🔊 Reproduzindo...');
     utterance.onend = () => setStatus('⏹️ Pronto');
-    utterance.onerror = () => setStatus('⚠️ Erro na reprodução');
+    utterance.onerror = (e) => {
+      console.error(e);
+      setStatus('⚠️ Erro ao sintetizar áudio');
+    };
 
     window.speechSynthesis.speak(utterance);
-    setCursorPosition(startPos);
   };
 
   const pause = () => {
@@ -73,7 +108,6 @@ export const useSpeechSynthesis = (
     if (nextLineIndex !== -1) {
       const newPos = currentPos + nextLineIndex + 1;
 
-      // Atualiza o cursor visualmente no React
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(newPos, newPos);
 

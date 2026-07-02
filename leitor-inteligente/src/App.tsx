@@ -1,122 +1,96 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import React, { useEffect } from 'react';
+import { usePdfExtractor } from './hooks/usePdfExtractor';
+import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
+import './index.css'; // Suas variáveis CSS do projeto original podem ir aqui
 
 function App() {
-  const [count, setCount] = useState(0)
+  const { text, setText, fileName, isProcessing, extractTextFromPdf } = usePdfExtractor();
+  const {
+    voices,
+    selectedVoiceIndex,
+    setSelectedVoiceIndex,
+    status,
+    textareaRef,
+    playFromPosition,
+    pause,
+    stop,
+    skipParagraph
+  } = useSpeechSynthesis(text, setText);
+
+  // Sincroniza o texto extraído do PDF para dentro do hook do Speech
+  // (Caso queira debugar ou disparar efeitos automáticos)
+  useEffect(() => {
+    if (text && textareaRef.current) {
+      textareaRef.current.value = text;
+    }
+  }, [text]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      extractTextFromPdf(file);
+    }
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div style={{ padding: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ background: '#1e293b', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '800px', boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)' }}>
+        <h1 style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#93c5fd' }}>🔊 Leitor de Texto e PDF (Vite + React)</h1>
+
+        {/* Upload de arquivo */}
+        <label htmlFor="pdfInput" style={{ display: 'block', width: '100%', padding: '12px', background: '#334155', color: 'white', textAlign: 'center', borderRadius: '8px', cursor: 'pointer', marginBottom: '10px', fontWeight: '600', border: '2px dashed #475569' }}>
+          {isProcessing ? '⏳ Processando PDF...' : '📁 Selecionar arquivo PDF'}
+        </label>
+        <input type="file" id="pdfInput" accept="application/pdf" onChange={handleFileChange} style={{ display: 'none' }} />
+        <div style={{ textAlign: 'center', marginBottom: '10px', fontSize: '0.8rem', color: '#94a3b8' }}>
+          {fileName}
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
+
+        {/* Campo de Texto */}
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Cole seu texto aqui ou carregue um PDF..."
+          style={{ width: '100%', height: '200px', background: '#0f172a', color: 'white', padding: '12px', border: '2px solid #334155', borderRadius: '8px', marginBottom: '1rem', resize: 'vertical' }}
+        />
+
+        {/* Seletor de Vozes */}
+        <select
+          value={selectedVoiceIndex}
+          onChange={(e) => setSelectedVoiceIndex(Number(e.target.value))}
+          style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#0f172a', color: 'white', border: '2px solid #334155', marginBottom: '1rem' }}
         >
-          Count is {count}
-        </button>
-      </section>
+          {voices.map((voice, index) => (
+            <option key={index} value={index}>
+              {voice.name} ({voice.lang})
+            </option>
+          ))}
+        </select>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+        {/* Controles de Áudio */}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <button onClick={() => textareaRef.current && playFromPosition(textareaRef.current.selectionStart)} style={{ padding: '12px', flex: '1', minWidth: '150px', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', fontWeight: '600', background: '#3b82f6' }}>
+            ▶️ Reproduzir do Cursor
+          </button>
+          <button onClick={skipParagraph} style={{ padding: '12px', flex: '1', minWidth: '150px', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', fontWeight: '600', background: '#8b5cf6' }}>
+            ⏭️ Pular Parágrafo
+          </button>
+          <button onClick={pause} style={{ padding: '12px', flex: '1', minWidth: '150px', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', fontWeight: '600', background: '#64748b' }}>
+            ⏸️ Pausar / Retomar
+          </button>
+          <button onClick={stop} style={{ padding: '12px', flex: '1', minWidth: '150px', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', fontWeight: '600', background: '#ef4444' }}>
+            ⏹️ Parar
+          </button>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        {/* Status */}
+        <div style={{ padding: '12px', background: '#0f172a', borderRadius: '8px', textAlign: 'center', border: '1px solid #334155', fontSize: '0.9rem' }}>
+          {status}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-export default App
+export default App;
