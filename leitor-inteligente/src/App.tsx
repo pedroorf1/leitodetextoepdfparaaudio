@@ -1,15 +1,16 @@
 import React, { useEffect } from 'react';
 import { usePdfExtractor } from './hooks/usePdfExtractor';
 import { useSpeechSynthesis } from './hooks/useSpeechSynthesis';
-import './index.css'; // Suas variáveis CSS do projeto original podem ir aqui
+import './index.css';
 
 function App() {
   const { text, setText, fileName, isProcessing, extractTextFromPdf } = usePdfExtractor();
+
+  // 🔄 SINCRONIZAÇÃO CORRIGIDA: Importando exatamente o que o useSpeechSynthesis exporta
   const {
-    voices,
-    selectedVoiceIndex,
-    setSelectedVoiceIndex,
     status,
+    isPlaying,
+    aylaSpeech,
     textareaRef,
     playFromPosition,
     pause,
@@ -18,7 +19,6 @@ function App() {
   } = useSpeechSynthesis(text, setText);
 
   // Sincroniza o texto extraído do PDF para dentro do hook do Speech
-  // (Caso queira debugar ou disparar efeitos automáticos)
   useEffect(() => {
     if (text && textareaRef.current) {
       textareaRef.current.value = text;
@@ -55,23 +55,29 @@ function App() {
           style={{ width: '100%', height: '200px', background: '#0f172a', color: 'white', padding: '12px', border: '2px solid #334155', borderRadius: '8px', marginBottom: '1rem', resize: 'vertical' }}
         />
 
-        {/* Seletor de Vozes */}
-        <select
-          value={selectedVoiceIndex}
-          onChange={(e) => setSelectedVoiceIndex(Number(e.target.value))}
-          style={{ width: '100%', padding: '12px', borderRadius: '8px', background: '#0f172a', color: 'white', border: '2px solid #334155', marginBottom: '1rem' }}
-        >
-          {voices.map((voice, index) => (
-            <option key={index} value={index}>
-              {voice.name} ({voice.lang})
-            </option>
-          ))}
-        </select>
+        {/* 💬 Balão de Pensamento/Fala da IA da Ayla Inserido com Sucesso */}
+        {aylaSpeech && (
+          <div style={{
+            background: '#334155',
+            borderLeft: '4px solid #93c5fd',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            marginBottom: '1.5rem',
+            fontStyle: 'italic',
+            color: '#93c5fd',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+          }}>
+            <strong>Ayla diz:</strong> "{aylaSpeech}"
+          </div>
+        )}
 
         {/* Controles de Áudio */}
         <div style={{ display: 'flex', gap: '10px', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          <button onClick={() => textareaRef.current && playFromPosition(textareaRef.current.selectionStart)} style={{ padding: '12px', flex: '1', minWidth: '150px', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', fontWeight: '600', background: '#3b82f6' }}>
-            ▶️ Reproduzir do Cursor
+          <button
+            onClick={() => textareaRef.current && playFromPosition(textareaRef.current.selectionStart)}
+            style={{ padding: '12px', flex: '1', minWidth: '150px', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', fontWeight: '600', background: isPlaying ? '#10b981' : '#3b82f6' }}
+          >
+            {isPlaying ? '🎙️ Agente Lendo...' : '▶️ Reproduzir do Cursor'}
           </button>
           <button onClick={skipParagraph} style={{ padding: '12px', flex: '1', minWidth: '150px', border: 'none', borderRadius: '8px', cursor: 'pointer', color: 'white', fontWeight: '600', background: '#8b5cf6' }}>
             ⏭️ Pular Parágrafo
@@ -85,8 +91,8 @@ function App() {
         </div>
 
         {/* Status */}
-        <div style={{ padding: '12px', background: '#0f172a', borderRadius: '8px', textAlign: 'center', border: '1px solid #334155', fontSize: '0.9rem' }}>
-          {status}
+        <div style={{ padding: '12px', background: '#0f172a', borderRadius: '8px', textAlign: 'center', border: '1px solid #334155', fontSize: '0.9rem', fontWeight: 'bold' }}>
+          Status: {status}
         </div>
       </div>
     </div>

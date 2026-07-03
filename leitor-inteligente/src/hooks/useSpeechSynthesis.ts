@@ -1,100 +1,126 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
+
+const API = import.meta.env.VITE_API_SOURCE;
 
 export const useSpeechSynthesis = (
   text: string,
   setText: React.Dispatch<React.SetStateAction<string>>
 ) => {
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceIndex, setSelectedVoiceIndex] = useState<number>(0);
   const [status, setStatus] = useState<string>('Pronto');
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [aylaSpeech, setAylaSpeech] = useState<string>(''); // Texto que a IA gerou
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    const loadVoices = () => {
-      const availableVoices = window.speechSynthesis.getVoices();
-      setVoices(availableVoices);
+  // Controle de Fila por Parágrafos para o Agente
+  const paragraphsQueueRef = useRef<string[]>([]);
+  const currentParagraphIndexRef = useRef<number>(0);
 
-      // Tenta selecionar prioritariamente a voz Francisca da Microsoft se disponível localmente
-      const defaultIndex = availableVoices.findIndex(v =>
-        v.name.includes('Francisca') || v.lang.includes('pt-BR')
-      );
-      if (defaultIndex !== -1) setSelectedVoiceIndex(defaultIndex);
-    };
-
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-  }, []);
-
-  // 🧹 REGRA DO CONFIG: Limpa o texto antes de ler em voz alta
-  const preprocessText = (rawText: string): string => {
-    let cleanText = rawText;
-
-    // 1. ignore_brackets (Remove tudo entre [ ])
-    cleanText = cleanText.replace(/\[.*?\]/g, '');
-
-    // 2. ignore_parentheses (Remove tudo entre ( ))
-    cleanText = cleanText.replace(/\(.*?\)/g, '');
-
-    // 3. ignore_asterisks (Remove tudo entre * *)
-    cleanText = cleanText.replace(/\*.*?\*/g, '');
-
-    // 4. ignore_angle_brackets (Remove tudo entre < >)
-    cleanText = cleanText.replace(/<.*?>/g, '');
-
-    // 5. remove_special_char (Filtra emojis e caracteres especiais complexos de chats)
-    // Mantém letras, números, acentuação e pontuações tradicionais de leitura.
-    cleanText = cleanText.replace(/[^\w\s\dáàâãéèêíïóôõöúçñÁÀÂÃÉÈÍÏÓÔÕÖÚÇÑ.,!?;:()""'\-]/g, '');
-
-    return cleanText;
+  // Divide o PDF em parágrafos limpos
+  const splitIntoParagraphs = (fullText: string): string[] => {
+    return fullText
+      .split('\n')
+      .map(p => p.trim())
+      .filter(p => p.length > 0);
   };
 
-  const playFromPosition = (startPos: number) => {
-    window.speechSynthesis.cancel();
+  // 🤖 O CORAÇÃO DO AGENTE: Consome a LLM (Groq) e o TTS (Edge) integrados
+  const playCurrentParagraph = async () => {
+    const queue = paragraphsQueueRef.current;
+    const index = currentParagraphIndexRef.current;
 
-    // Captura o pedaço do texto com base no cursor
-    const rawTextToSpeak = text.substring(startPos);
-
-    // Aplica o pré-processador inteligente vindo do conf.yaml
-    const sanitizedText = preprocessText(rawTextToSpeak);
-
-    if (!sanitizedText.trim()) {
-      setStatus('❌ Fim do texto limpo para leitura!');
+    if (index >= queue.length) {
+      setStatus('⏹️ Fim da leitura do documento pelo Agente.');
+      setIsPlaying(false);
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(sanitizedText);
+    const rawParagraph = queue[index];
 
-    if (voices[selectedVoiceIndex]) {
-      utterance.voice = voices[selectedVoiceIndex];
+    try {
+      setStatus(`🧠 Ayla pensando e interpretando parágrafo ${index + 1}...`);
+
+      // 🌐 Chamada para a API que unifica o seu conf.yaml (Groq + Edge TTS)
+      // Substitua '/api/read-paragraph' pela URL do seu servidor local de MVP
+      const response = await fetch(`${API}/tts/read-paragraph`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paragraph: rawParagraph })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.audioUrl) {
+        throw new Error("Falha na resposta da IA");
+      }
+
+      // Atualiza a tela com o que a IA interpretou e a expressão gerada
+      setAylaSpeech(data.textoInterpretado);
+
+      // Interrompe qualquer áudio remanescente
+      if (audioRef.current) audioRef.current.pause();
+
+      // Executa o áudio gerado pela IA da Ayla
+      const audio = new Audio(data.audioUrl);
+      audioRef.current = audio;
+
+      audio.onplay = () => {
+        setStatus(`🎙️ Ayla lendo parágrafo ${index + 1}...`);
+        setIsPlaying(true);
+      };
+
+      // Quando terminar de falar este parágrafo, ela vai para o próximo automaticamente
+      audio.onended = () => {
+        currentParagraphIndexRef.current += 1;
+        playCurrentParagraph();
+      };
+
+      await audio.play();
+
+    } catch (error) {
+      console.error('Erro no Agente de Leitura:', error);
+      setStatus('⚠️ Erro de comunicação com o Groq/TTS. Pulando parágrafo...');
+      currentParagraphIndexRef.current += 1;
+      setTimeout(playCurrentParagraph, 1500);
+    }
+  };
+
+  const playFromPosition = (startPos: number) => {
+    const remainingText = text.substring(startPos);
+    const paragraphs = splitIntoParagraphs(remainingText);
+
+    if (paragraphs.length === 0) {
+      setStatus('❌ Forneça um texto ou PDF válido.');
+      return;
     }
 
-    // Configuração base de ritmo (+15% acelerado conforme o arquivo do projeto original)
-    utterance.rate = 1.15;
-    utterance.pitch = 1.0;
+    paragraphsQueueRef.current = paragraphs;
+    currentParagraphIndexRef.current = 0;
 
-    utterance.onstart = () => setStatus('🔊 Reproduzindo...');
-    utterance.onend = () => setStatus('⏹️ Pronto');
-    utterance.onerror = (e) => {
-      console.error(e);
-      setStatus('⚠️ Erro ao sintetizar áudio');
-    };
-
-    window.speechSynthesis.speak(utterance);
+    playCurrentParagraph();
   };
 
   const pause = () => {
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
-      setStatus('🔊 Reproduzindo...');
+    if (!audioRef.current) return;
+    if (audioRef.current.paused) {
+      audioRef.current.play();
+      setStatus('🔊 Ayla retomou a leitura...');
     } else {
-      window.speechSynthesis.pause();
-      setStatus('⏸️ Pausado');
+      audioRef.current.pause();
+      setStatus('⏸️ Agente em pausa');
     }
   };
 
   const stop = () => {
-    window.speechSynthesis.cancel();
+    paragraphsQueueRef.current = [];
+    currentParagraphIndexRef.current = 0;
+    setIsPlaying(false);
+    setAylaSpeech('');
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
     setStatus('⏹️ Parado');
   };
 
@@ -107,22 +133,18 @@ export const useSpeechSynthesis = (
 
     if (nextLineIndex !== -1) {
       const newPos = currentPos + nextLineIndex + 1;
-
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(newPos, newPos);
-
       playFromPosition(newPos);
-      setStatus('⏭️ Pulou para o próximo parágrafo');
     } else {
       setStatus('⚠️ Fim do documento.');
     }
   };
 
   return {
-    voices,
-    selectedVoiceIndex,
-    setSelectedVoiceIndex,
     status,
+    isPlaying,
+    aylaSpeech,
     textareaRef,
     playFromPosition,
     pause,
