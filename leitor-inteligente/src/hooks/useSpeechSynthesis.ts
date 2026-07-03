@@ -22,7 +22,6 @@ export const useSpeechSynthesis = (
   const isPreFetchingRef = useRef<boolean>(false);
 
   // ✂️ Quebra o texto em frases curtas baseadas em pontuação (. ! ?)
-  // Evita estourar o contexto e os limites de tokens da API
   const splitIntoPhrases = (fullText: string): string[] => {
     return fullText
       .split(/(?<=[.!?])\s+/)
@@ -41,7 +40,6 @@ export const useSpeechSynthesis = (
       isPreFetchingRef.current = true;
       const nextRawPhrase = queue[nextIndex];
 
-      // Valida o sufixo para evitar duplicações de rota na rede
       const baseUrl = API.endsWith('/api/v1') ? API : `${API}/api/v1`;
 
       const response = await fetch(`${baseUrl}/tts/read-paragraph`, {
@@ -51,14 +49,14 @@ export const useSpeechSynthesis = (
       });
 
       const data = await response.json();
-      const audioSource = data.audioUrl || data.audioData;
+      const audioSource = data.audioData || data.audioUrl; // Prioriza o Base64 natural do backend
 
       if (response.ok && audioSource) {
         const nextAudio = new Audio(audioSource);
         nextAudio.preload = "auto";
 
-        // Injeta os dados da resposta de texto direto na propriedade do elemento HTML para recuperar depois
-        (nextAudio as any)._textoInterpretado = data.textoInterpretated || data.textoInterpretado;
+        // Guarda o texto interpretado dentro do próprio objeto de áudio para recuperar na fila
+        (nextAudio as any)._textoInterpretado = data.textoInterpretado || data.textoInterpretated;
 
         nextAudioCacheRef.current = nextAudio;
       }
@@ -80,6 +78,11 @@ export const useSpeechSynthesis = (
       return;
     }
 
+    // Interrompe qualquer áudio remanescente que esteja tocando antes de iniciar o próximo
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
     // --- FLUXO A: Usar áudio pré-carregado no Cache ---
     if (nextAudioCacheRef.current) {
       const audio = nextAudioCacheRef.current;
@@ -94,7 +97,7 @@ export const useSpeechSynthesis = (
       audio.onplay = () => {
         setStatus(`🎙️ Ayla lendo trecho ${index + 1}...`);
         setIsPlaying(true);
-        preFetchNextPhrase(); // Engatilha o próximo enquanto este toca!
+        preFetchNextPhrase(); // Engatilha o próximo enquanto este toca
       };
 
       audio.onended = () => {
@@ -104,13 +107,13 @@ export const useSpeechSynthesis = (
 
       try {
         await audio.play();
-        return;
+        return; // Finaliza o fluxo do cache com sucesso
       } catch (err) {
         console.warn("Falha ao rodar áudio do cache, recuando para requisição padrão", err);
       }
     }
 
-    // --- FLUXO B: Requisição HTTP Padrão (Primeira frase ou Fallback) ---
+    // --- FLUXO B: Requisição HTTP Padrão (Primeira frase ou se o cache falhar) ---
     const rawParagraph = queue[index];
 
     try {
@@ -125,66 +128,29 @@ export const useSpeechSynthesis = (
       });
 
       const data = await response.json();
-      const audioSource = data.audioUrl || data.audioData;
+      const audioSource = data.audioData || data.audioUrl; // Captura o Base64 nativo natural
 
       if (!response.ok || !audioSource) {
         throw new Error("Falha na resposta da IA ou áudio não gerado");
       }
 
-      setAylaSpeech(data.textoInterpretado);
+      setAylaSpeech(data.textoInterpretado || data.textoInterpretated);
 
-      // Interrompe qualquer áudio ou fala anterior
-      if (audioRef.current) audioRef.current.pause();
-      window.speechSynthesis.cancel();
+      const audio = new Audio(audioSource);
+      audioRef.current = audio;
 
-      // 🎙️ SE FOR SÍNTESE NATIVA (OpenRouter/Gemini)
-      if (audioSource === 'native') {
-        const utterance = new SpeechSynthesisUtterance(data.textoInterpretado);
-        utterance.lang = 'pt-BR';
-        utterance.rate = 1.15; // Velocidade estipulada no conf.yaml
+      audio.onplay = () => {
+        setStatus(`🎙️ Ayla lendo trecho ${index + 1}...`);
+        setIsPlaying(true);
+        preFetchNextPhrase(); // Pede o próximo em background
+      };
 
-        // Tenta selecionar uma voz feminina em português se disponível
-        const voices = window.speechSynthesis.getVoices();
-        const femaleVoice = voices.find(v => v.lang.includes('pt-BR') && (v.name.toLowerCase().includes('maria') || v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('luciana')));
-        if (femaleVoice) utterance.voice = femaleVoice;
+      audio.onended = () => {
+        currentParagraphIndexRef.current += 1;
+        playCurrentParagraph();
+      };
 
-        utterance.onstart = () => {
-          setStatus(`🎙️ Ayla lendo trecho ${index + 1}...`);
-          setIsPlaying(true);
-          preFetchNextPhrase(); // Pré-carrega o próximo trecho em segundo plano!
-        };
-
-        utterance.onend = () => {
-          currentParagraphIndexRef.current += 1;
-          playCurrentParagraph();
-        };
-
-        utterance.onerror = (e) => {
-          console.error("Erro na síntese nativa:", e);
-          currentParagraphIndexRef.current += 1;
-          setTimeout(playCurrentParagraph, 1000);
-        };
-
-        window.speechSynthesis.speak(utterance);
-
-      } else {
-        // 💾 SE FOR VIA AUDIO URL/BASE64 (Fallback/Groq/OpenAI)
-        const audio = new Audio(audioSource);
-        audioRef.current = audio;
-
-        audio.onplay = () => {
-          setStatus(`🎙️ Ayla lendo trecho ${index + 1}...`);
-          setIsPlaying(true);
-          preFetchNextPhrase();
-        };
-
-        audio.onended = () => {
-          currentParagraphIndexRef.current += 1;
-          playCurrentParagraph();
-        };
-
-        await audio.play();
-      }
+      await audio.play();
 
     } catch (error) {
       console.error('Erro no Agente de Leitura:', error);
@@ -196,14 +162,13 @@ export const useSpeechSynthesis = (
 
   const playFromPosition = (startPos: number) => {
     const remainingText = text.substring(startPos);
-    const phrases = splitIntoPhrases(remainingText); // Atualizado para usar quebra por frases
+    const phrases = splitIntoPhrases(remainingText);
 
     if (phrases.length === 0) {
       setStatus('❌ Forneça um texto ou PDF válido.');
       return;
     }
 
-    // Limpa caches antigos se existirem antes de reiniciar o player
     nextAudioCacheRef.current = null;
     paragraphsQueueRef.current = phrases;
     currentParagraphIndexRef.current = 0;
@@ -212,17 +177,6 @@ export const useSpeechSynthesis = (
   };
 
   const pause = () => {
-    if (window.speechSynthesis.speaking) {
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-        setStatus('🔊 Ayla retomou a leitura...');
-      } else {
-        window.speechSynthesis.pause();
-        setStatus('⏸️ Agente em pausa');
-      }
-      return;
-    }
-
     if (!audioRef.current) return;
     if (audioRef.current.paused) {
       audioRef.current.play();
@@ -239,8 +193,6 @@ export const useSpeechSynthesis = (
     nextAudioCacheRef.current = null;
     setIsPlaying(false);
     setAylaSpeech('');
-
-    window.speechSynthesis.cancel(); // Para a fala nativa imediatamente
 
     if (audioRef.current) {
       audioRef.current.pause();
