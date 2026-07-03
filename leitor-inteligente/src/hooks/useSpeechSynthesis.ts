@@ -25,7 +25,7 @@ export const useSpeechSynthesis = (
       .filter(p => p.length > 0);
   };
 
-  // 🤖 O CORAÇÃO DO AGENTE: Consome a LLM (Groq) e o TTS (Edge) integrados
+  // 🤖 O CORAÇÃO DO AGENTE: Consome a API do seu MVP (Independente de qual IA está ativa)
   const playCurrentParagraph = async () => {
     const queue = paragraphsQueueRef.current;
     const index = currentParagraphIndexRef.current;
@@ -41,9 +41,7 @@ export const useSpeechSynthesis = (
     try {
       setStatus(`🧠 Ayla pensando e interpretando parágrafo ${index + 1}...`);
 
-      // 🌐 Chamada para a API que unifica o seu conf.yaml (Groq + Edge TTS)
-      // Substitua '/api/read-paragraph' pela URL do seu servidor local de MVP
-      const response = await fetch(`${API}/tts/read-paragraph`, {
+      const response = await fetch(`${API}/api/v1/tts/read-paragraph`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paragraph: rawParagraph })
@@ -51,8 +49,11 @@ export const useSpeechSynthesis = (
 
       const data = await response.json();
 
-      if (!response.ok || !data.audioUrl) {
-        throw new Error("Falha na resposta da IA");
+      // 🔄 AJUSTE DE VALIDAÇÃO: Aceita tanto links externos quanto dados em Base64
+      const audioSource = data.audioUrl || data.audioData;
+
+      if (!response.ok || !audioSource) {
+        throw new Error("Falha na resposta da IA ou áudio não gerado");
       }
 
       // Atualiza a tela com o que a IA interpretou e a expressão gerada
@@ -61,8 +62,8 @@ export const useSpeechSynthesis = (
       // Interrompe qualquer áudio remanescente
       if (audioRef.current) audioRef.current.pause();
 
-      // Executa o áudio gerado pela IA da Ayla
-      const audio = new Audio(data.audioUrl);
+      // Executa o áudio dinamicamente (Funciona com URL do OpenRouter/Google ou Base64 da OpenAI)
+      const audio = new Audio(audioSource);
       audioRef.current = audio;
 
       audio.onplay = () => {
@@ -80,7 +81,7 @@ export const useSpeechSynthesis = (
 
     } catch (error) {
       console.error('Erro no Agente de Leitura:', error);
-      setStatus('⚠️ Erro de comunicação com o Groq/TTS. Pulando parágrafo...');
+      setStatus('⚠️ Erro de comunicação com o Provedor. Pulando parágrafo...');
       currentParagraphIndexRef.current += 1;
       setTimeout(playCurrentParagraph, 1500);
     }
