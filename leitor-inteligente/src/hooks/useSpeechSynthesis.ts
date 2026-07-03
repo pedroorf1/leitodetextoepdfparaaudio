@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 
-const API = import.meta.env.VITE_API_SOURCE;
+const API = import.meta.env.VITE_API_SOURCE || '';
 
 export const useSpeechSynthesis = (
   text: string,
@@ -13,19 +13,63 @@ export const useSpeechSynthesis = (
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Controle de Fila por Parágrafos para o Agente
+  // Controle de Fila por Frases/Trechos Curtos para o Agente
   const paragraphsQueueRef = useRef<string[]>([]);
   const currentParagraphIndexRef = useRef<number>(0);
 
-  // Divide o PDF em parágrafos limpos
-  const splitIntoParagraphs = (fullText: string): string[] => {
+  // Cache para o áudio da próxima frase (Garante fluidez e evita latência de rede)
+  const nextAudioCacheRef = useRef<HTMLAudioElement | null>(null);
+  const isPreFetchingRef = useRef<boolean>(false);
+
+  // ✂️ Quebra o texto em frases curtas baseadas em pontuação (. ! ?)
+  // Evita estourar o contexto e os limites de tokens da API
+  const splitIntoPhrases = (fullText: string): string[] => {
     return fullText
-      .split('\n')
+      .split(/(?<=[.!?])\s+/)
       .map(p => p.trim())
       .filter(p => p.length > 0);
   };
 
-  // 🤖 O CORAÇÃO DO AGENTE: Consome a API do seu MVP (Independente de qual IA está ativa)
+  // 🔄 Faz a requisição antecipada da próxima frase em segundo plano
+  const preFetchNextPhrase = async () => {
+    const queue = paragraphsQueueRef.current;
+    const nextIndex = currentParagraphIndexRef.current + 1;
+
+    if (nextIndex >= queue.length || isPreFetchingRef.current) return;
+
+    try {
+      isPreFetchingRef.current = true;
+      const nextRawPhrase = queue[nextIndex];
+
+      // Valida o sufixo para evitar duplicações de rota na rede
+      const baseUrl = API.endsWith('/api/v1') ? API : `${API}/api/v1`;
+
+      const response = await fetch(`${baseUrl}/tts/read-paragraph`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paragraph: nextRawPhrase })
+      });
+
+      const data = await response.json();
+      const audioSource = data.audioUrl || data.audioData;
+
+      if (response.ok && audioSource) {
+        const nextAudio = new Audio(audioSource);
+        nextAudio.preload = "auto";
+
+        // Injeta os dados da resposta de texto direto na propriedade do elemento HTML para recuperar depois
+        (nextAudio as any)._textoInterpretado = data.textoInterpretated || data.textoInterpretado;
+
+        nextAudioCacheRef.current = nextAudio;
+      }
+    } catch (e) {
+      console.error('Erro no pre-fetch de áudio:', e);
+    } finally {
+      isPreFetchingRef.current = false;
+    }
+  };
+
+  // 🤖 O CORAÇÃO DO AGENTE: Consome a API do seu MVP de forma contínua
   const playCurrentParagraph = async () => {
     const queue = paragraphsQueueRef.current;
     const index = currentParagraphIndexRef.current;
@@ -36,52 +80,115 @@ export const useSpeechSynthesis = (
       return;
     }
 
+    // --- FLUXO A: Usar áudio pré-carregado no Cache ---
+    if (nextAudioCacheRef.current) {
+      const audio = nextAudioCacheRef.current;
+      audioRef.current = audio;
+      nextAudioCacheRef.current = null;
+
+      // Recupera o texto salvo no objeto do áudio cacheado
+      if ((audio as any)._textoInterpretado) {
+        setAylaSpeech((audio as any)._textoInterpretado);
+      }
+
+      audio.onplay = () => {
+        setStatus(`🎙️ Ayla lendo trecho ${index + 1}...`);
+        setIsPlaying(true);
+        preFetchNextPhrase(); // Engatilha o próximo enquanto este toca!
+      };
+
+      audio.onended = () => {
+        currentParagraphIndexRef.current += 1;
+        playCurrentParagraph();
+      };
+
+      try {
+        await audio.play();
+        return;
+      } catch (err) {
+        console.warn("Falha ao rodar áudio do cache, recuando para requisição padrão", err);
+      }
+    }
+
+    // --- FLUXO B: Requisição HTTP Padrão (Primeira frase ou Fallback) ---
     const rawParagraph = queue[index];
 
     try {
-      setStatus(`🧠 Ayla pensando e interpretando parágrafo ${index + 1}...`);
+      setStatus(`🧠 Ayla pensando e interpretando trecho ${index + 1}...`);
 
-      const response = await fetch(`${API}/api/v1/tts/read-paragraph`, {
+      const baseUrl = API.endsWith('/api/v1') ? API : `${API}/api/v1`;
+
+      const response = await fetch(`${baseUrl}/tts/read-paragraph`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paragraph: rawParagraph })
       });
 
       const data = await response.json();
-
-      // 🔄 AJUSTE DE VALIDAÇÃO: Aceita tanto links externos quanto dados em Base64
       const audioSource = data.audioUrl || data.audioData;
 
       if (!response.ok || !audioSource) {
         throw new Error("Falha na resposta da IA ou áudio não gerado");
       }
 
-      // Atualiza a tela com o que a IA interpretou e a expressão gerada
       setAylaSpeech(data.textoInterpretado);
 
-      // Interrompe qualquer áudio remanescente
+      // Interrompe qualquer áudio ou fala anterior
       if (audioRef.current) audioRef.current.pause();
+      window.speechSynthesis.cancel();
 
-      // Executa o áudio dinamicamente (Funciona com URL do OpenRouter/Google ou Base64 da OpenAI)
-      const audio = new Audio(audioSource);
-      audioRef.current = audio;
+      // 🎙️ SE FOR SÍNTESE NATIVA (OpenRouter/Gemini)
+      if (audioSource === 'native') {
+        const utterance = new SpeechSynthesisUtterance(data.textoInterpretado);
+        utterance.lang = 'pt-BR';
+        utterance.rate = 1.15; // Velocidade estipulada no conf.yaml
 
-      audio.onplay = () => {
-        setStatus(`🎙️ Ayla lendo parágrafo ${index + 1}...`);
-        setIsPlaying(true);
-      };
+        // Tenta selecionar uma voz feminina em português se disponível
+        const voices = window.speechSynthesis.getVoices();
+        const femaleVoice = voices.find(v => v.lang.includes('pt-BR') && (v.name.toLowerCase().includes('maria') || v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('luciana')));
+        if (femaleVoice) utterance.voice = femaleVoice;
 
-      // Quando terminar de falar este parágrafo, ela vai para o próximo automaticamente
-      audio.onended = () => {
-        currentParagraphIndexRef.current += 1;
-        playCurrentParagraph();
-      };
+        utterance.onstart = () => {
+          setStatus(`🎙️ Ayla lendo trecho ${index + 1}...`);
+          setIsPlaying(true);
+          preFetchNextPhrase(); // Pré-carrega o próximo trecho em segundo plano!
+        };
 
-      await audio.play();
+        utterance.onend = () => {
+          currentParagraphIndexRef.current += 1;
+          playCurrentParagraph();
+        };
+
+        utterance.onerror = (e) => {
+          console.error("Erro na síntese nativa:", e);
+          currentParagraphIndexRef.current += 1;
+          setTimeout(playCurrentParagraph, 1000);
+        };
+
+        window.speechSynthesis.speak(utterance);
+
+      } else {
+        // 💾 SE FOR VIA AUDIO URL/BASE64 (Fallback/Groq/OpenAI)
+        const audio = new Audio(audioSource);
+        audioRef.current = audio;
+
+        audio.onplay = () => {
+          setStatus(`🎙️ Ayla lendo trecho ${index + 1}...`);
+          setIsPlaying(true);
+          preFetchNextPhrase();
+        };
+
+        audio.onended = () => {
+          currentParagraphIndexRef.current += 1;
+          playCurrentParagraph();
+        };
+
+        await audio.play();
+      }
 
     } catch (error) {
       console.error('Erro no Agente de Leitura:', error);
-      setStatus('⚠️ Erro de comunicação com o Provedor. Pulando parágrafo...');
+      setStatus('⚠️ Erro de comunicação com o Provedor. Pulando trecho...');
       currentParagraphIndexRef.current += 1;
       setTimeout(playCurrentParagraph, 1500);
     }
@@ -89,20 +196,33 @@ export const useSpeechSynthesis = (
 
   const playFromPosition = (startPos: number) => {
     const remainingText = text.substring(startPos);
-    const paragraphs = splitIntoParagraphs(remainingText);
+    const phrases = splitIntoPhrases(remainingText); // Atualizado para usar quebra por frases
 
-    if (paragraphs.length === 0) {
+    if (phrases.length === 0) {
       setStatus('❌ Forneça um texto ou PDF válido.');
       return;
     }
 
-    paragraphsQueueRef.current = paragraphs;
+    // Limpa caches antigos se existirem antes de reiniciar o player
+    nextAudioCacheRef.current = null;
+    paragraphsQueueRef.current = phrases;
     currentParagraphIndexRef.current = 0;
 
     playCurrentParagraph();
   };
 
   const pause = () => {
+    if (window.speechSynthesis.speaking) {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+        setStatus('🔊 Ayla retomou a leitura...');
+      } else {
+        window.speechSynthesis.pause();
+        setStatus('⏸️ Agente em pausa');
+      }
+      return;
+    }
+
     if (!audioRef.current) return;
     if (audioRef.current.paused) {
       audioRef.current.play();
@@ -116,8 +236,12 @@ export const useSpeechSynthesis = (
   const stop = () => {
     paragraphsQueueRef.current = [];
     currentParagraphIndexRef.current = 0;
+    nextAudioCacheRef.current = null;
     setIsPlaying(false);
     setAylaSpeech('');
+
+    window.speechSynthesis.cancel(); // Para a fala nativa imediatamente
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
