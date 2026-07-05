@@ -35,7 +35,7 @@ function App() {
   return (
     <div style={{ padding: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ background: '#1e293b', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '800px', boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)' }}>
-        <h1 style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#93c5fd' }}>🔊 Leitor de Texto e PDF (Vite + React)</h1>
+        <h2 style={{ textAlign: 'center', marginBottom: '1.5rem', color: '#93c5fd' }}>🔊 Leitor de Texto e PDF</h2>
 
         {/* Upload de arquivo */}
         <label htmlFor="pdfInput" style={{ display: 'block', width: '100%', padding: '12px', background: '#334155', color: 'white', textAlign: 'center', borderRadius: '8px', cursor: 'pointer', marginBottom: '10px', fontWeight: '600', border: '2px dashed #475569' }}>
